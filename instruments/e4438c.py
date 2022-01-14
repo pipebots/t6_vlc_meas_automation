@@ -49,14 +49,14 @@ class E4438C():
         self.serial_number = None
         self.fw_version = None
 
-        self.frequency = None
+        self._frequency = None
         self.frequency_unit = "Hz"
 
-        self.power = None
+        self._power = None
         self.power_unit = "dBm"
 
-        self.output_enabled = False
-        self.mod_enabled = True
+        self._output_enabled = None
+        self._mod_enabled = None
 
         self.reset()
         self._log_details()
@@ -129,6 +129,12 @@ class E4438C():
          self.model_number,
          self.serial_number,
          self.fw_version) = idn_response.split(",")
+
+        self.vendor = self.vendor.strip()
+        self.model_number = self.model_number.strip()
+        self.serial_number = self.serial_number.strip()
+        self.fw_version = self.fw_version.strip()
+
         self.logger.info("Instrument vendor: %s", self.vendor)
         self.logger.info("Instrument model number: %s", self.model_number)
         self.logger.info("Instrument serial number: %s", self.serial_number)
@@ -145,24 +151,24 @@ class E4438C():
 
     @property
     def frequency(self):
-        if self.frequency is None:
-            self.frequency = self.instr_conn.query(
+        if self._frequency is None:
+            self._frequency = self.instr_conn.query(
                 ":SOURce:FREQuency:CW?", self.query_delay
             )
-        return (self.frequency, self.frequency_unit)
+        return (self._frequency, self.frequency_unit)
 
     @frequency.setter
-    def frequency(self, new_params: str):
+    def frequency(self, new_params: Union[str, int, float]):
         try:
             new_freq, unit = new_params.split()
-        except ValueError:
+        except ValueError, AttributeError:
             new_freq = new_params
-            unit = "Hz"
+            unit = self.frequency_unit
 
         self.instr_conn.write(f":SOURce:FREQuency:CW {new_freq} {unit}")
 
         if self._op_complete():
-            self.frequency = new_freq
+            self._frequency = new_freq
             self.frequency_unit = unit
             print(f"Frequency set to {new_freq} {unit}")
         else:
@@ -170,26 +176,26 @@ class E4438C():
 
     @property
     def power(self):
-        if self.power is None:
-            self.power = self.instr_conn.query(
+        if self._power is None:
+            self._power = self.instr_conn.query(
                 ":SOURce:POWer:LEVel:IMMediate:AMPlitude?", self.query_delay
             )
-        return (self.power, self.power_unit)
+        return (self._power, self.power_unit)
 
     @power.setter
-    def power(self, new_params: str):
+    def power(self, new_params: Union[str, int, float):
         try:
             new_power, unit = new_params.split()
-        except ValueError:
+        except ValueError, AttributeError:
             new_power = new_params
-            unit = "dBm"
+            unit = self.power_unit
 
         self.instr_conn.write(
             f":SOURce:POWer:LEVel:IMMediate:AMPlitude {new_power} {unit}"
         )
 
         if self._op_complete():
-            self.power = new_power
+            self._power = new_power
             self.power_unit = unit
             print(f"Output power set to {new_power} {unit}")
         else:
@@ -197,12 +203,14 @@ class E4438C():
 
     @property
     def output(self):
-        if self.output_enabled is None:
+        if self._output_enabled is None:
             current_state = self.instr_conn.query(
                 ":OUTPut:STATe?", self.query_delay
             )
-            self.output_enabled = current_state == "1" or current_state == "ON"
-        return self.output_enabled
+            self._output_enabled = (
+                current_state.lower() == "1" or current_state.lower() == "on"
+            )
+        return self._output_enabled
 
     @output.setter
     def output(self, new_state: Union[int, str]):
@@ -211,19 +219,23 @@ class E4438C():
         )
 
         if self._op_complete():
-            self.output_enabled = new_state == "1" or new_state == "ON"
-            print(f"Output enabled set to {self.output_enabled}")
+            self._output_enabled = (
+                new_state.lower() == "1" or new_state.lower() == "on"
+            )
+            print(f"Output enabled set to {self._output_enabled}")
         else:
             print(f"Error setting output enabled to {new_state}")
 
     @property
     def mod_state(self):
-        if self.mod_enabled is None:
+        if self._mod_enabled is None:
             current_state = self.instr_conn.query(
                 ":OUTPut:MODulation:STATe?", self.query_delay
             )
-            self.mod_enabled = current_state == "1" or current_state == "ON"
-        return self.mod_enabled
+            self._mod_enabled = (
+                current_state.lower() == "1" or current_state.lower() == "on"
+            )
+        return self._mod_enabled
 
     @mod_state.setter
     def mod_state(self, new_state: Union[int, str]):
@@ -232,7 +244,9 @@ class E4438C():
         )
 
         if self._op_complete():
-            self.mod_enabled = new_state == "1" or new_state == "ON"
-            print(f"Modulation enabled set to {self.mod_enabled}")
+            self._mod_enabled = (
+                new_state.lower() == "1" or new_state.lower() == "on"
+            )
+            print(f"Modulation enabled set to {self._mod_enabled}")
         else:
             print(f"Error setting dodulation enabled to {new_state}")
