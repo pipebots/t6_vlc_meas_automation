@@ -161,7 +161,7 @@ class E4438C():
     def frequency(self, new_params: Union[str, int, float]):
         try:
             new_freq, unit = new_params.split()
-        except ValueError, AttributeError:
+        except (ValueError, AttributeError) as error:
             new_freq = new_params
             unit = self.frequency_unit
 
@@ -183,10 +183,10 @@ class E4438C():
         return (self._power, self.power_unit)
 
     @power.setter
-    def power(self, new_params: Union[str, int, float):
+    def power(self, new_params: Union[str, int, float]):
         try:
             new_power, unit = new_params.split()
-        except ValueError, AttributeError:
+        except (ValueError, AttributeError) as error:
             new_power = new_params
             unit = self.power_unit
 
@@ -219,6 +219,7 @@ class E4438C():
         )
 
         if self._op_complete():
+            new_state = str(new_state)
             self._output_enabled = (
                 new_state.lower() == "1" or new_state.lower() == "on"
             )
@@ -244,6 +245,7 @@ class E4438C():
         )
 
         if self._op_complete():
+            new_state = str(new_state)
             self._mod_enabled = (
                 new_state.lower() == "1" or new_state.lower() == "on"
             )
