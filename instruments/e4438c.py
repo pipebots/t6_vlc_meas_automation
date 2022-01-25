@@ -1,14 +1,41 @@
+"""Module holding Signal Generator Classes
+
+"""
 import time
 import datetime
 import logging
-from typing import Union
+from typing import Union, Optional
 import ipaddress
 import pyvisa
 
 
 class E4438C():
-    def __init__(self, instr_name: str, address: Union[str, int],
-                 visamr: pyvisa.ResourceManager,
+    """Remote control of an Keysight E4438C Signal Generator using SCPI cmds.
+
+    A class representation of a Keysight E4438C Signal Generator, that provides
+    remote control capabilities through the use of SCPI commands. A connection
+    is established over a GPIB or a LAN interface. Currently only very basic
+    functionality is supported.
+
+    Attributes:
+        instr_conn:
+        name:
+        logger:
+        query_delay:
+        vendor:
+        model_number:
+        serial_number:
+        fw_version:
+        frequency:
+        frequency_unit:
+        power:
+        power_unit:
+        output_enabled:
+        mod_enabled:
+        details:
+    """
+    def __init__(self, visamr: pyvisa.ResourceManager,
+                 address: Union[str, int], instr_name: str,
                  logger: logging.Logger = None):
         if isinstance(address, str):
             try:
@@ -44,10 +71,10 @@ class E4438C():
 
         self.query_delay = 0.25
 
-        self.vendor = None
-        self.model_number = None
-        self.serial_number = None
-        self.fw_version = None
+        self.vendor: Optional[str] = None
+        self.model_number: Optional[str] = None
+        self.serial_number: Optional[str] = None
+        self.fw_version: Optional[str] = None
 
         self._frequency = None
         self.frequency_unit = "Hz"
@@ -55,13 +82,18 @@ class E4438C():
         self._power = None
         self.power_unit = "dBm"
 
-        self._output_enabled = None
-        self._mod_enabled = None
+        self._output_enabled: Optional[bool] = None
+        self._mod_enabled: Optional[bool] = None
 
         self.reset()
         self._log_details()
 
     def __del__(self):
+        """Destructor
+
+        Makes sure to close the VISA connection to the instrument before the
+        object is deleted.
+        """
         self.logger.info("Closing connection to %s", self.name)
         self.instr_conn.close()
 
@@ -88,7 +120,7 @@ class E4438C():
         logger = logging.getLogger(self.name)
 
         logger_handler = logging.FileHandler(log_filename)
-        logger_handler.setLevel(logging.DEBUG)
+        logger_handler.setLevel(logging.INFO)
 
         fmt_str = "{asctime:s} {msecs:.3f} \t {levelname:^10s} \t {message:s}"
         datefmt_string = "%Y-%m-%d %H:%M:%S"
@@ -107,23 +139,44 @@ class E4438C():
             format=fmt_str,
             datefmt=datefmt_string,
             style="{",
-            level=logging.DEBUG,
+            level=logging.INFO,
         )
         logger.info("Logger configuration done")
 
         return logger
 
     def _op_complete(self):
+        """Waits for operation to complete
+
+        Queries the instrument for completion of any pending operations. The
+        query should only return once everything is complete.
+
+        Returns:
+            A `True` or `False` boolean value. Should only ever return `True`
+        """
+
         response = self.instr_conn.query("*OPC?", self.query_delay)
-        return response == "1"
+        return response.lower() == "1"
 
     def reset(self):
+        """Resets an instrument to factory default settings
+
+        Standard commands to reset an instrument to factory default settings,
+        and to clear the status register of the instrument.
+        """
+
         self.instr_conn.write("*RST")
         time.sleep(0.25)
         self.instr_conn.write("*CLS")
         time.sleep(0.25)
 
     def _log_details(self):
+        """Logs instrument-specific details
+
+        An internal function to log an instrument's vendor, model number, and
+        other relevant details.
+        """
+
         idn_response = self.instr_conn.query("*IDN?", self.query_delay)
         (self.vendor,
          self.model_number,
@@ -142,6 +195,11 @@ class E4438C():
 
     @property
     def details(self):
+        """Human-friendly summary of the instrument we are connected to
+
+        Returns a more human-friendly summary of the main details of the
+        instrument to which we are connected, including the VISA address.
+        """
         print(
             f"{self.vendor} {self.model_number} connected on "
             f"{self.instr_conn.resource_name} with alias {self.name}.\n"
@@ -155,13 +213,14 @@ class E4438C():
             self._frequency = self.instr_conn.query(
                 ":SOURce:FREQuency:CW?", self.query_delay
             )
+            self.frequency_unit = "Hz"
         return (self._frequency, self.frequency_unit)
 
     @frequency.setter
     def frequency(self, new_params: Union[str, int, float]):
         try:
             new_freq, unit = new_params.split()
-        except (ValueError, AttributeError) as error:
+        except (ValueError, AttributeError) as _:
             new_freq = new_params
             unit = self.frequency_unit
 
@@ -186,7 +245,7 @@ class E4438C():
     def power(self, new_params: Union[str, int, float]):
         try:
             new_power, unit = new_params.split()
-        except (ValueError, AttributeError) as error:
+        except (ValueError, AttributeError) as _:
             new_power = new_params
             unit = self.power_unit
 
@@ -203,6 +262,16 @@ class E4438C():
 
     @property
     def output(self):
+        """Returns the state of the Signal Generator's RF Output
+
+        Queries and returns the state of the RF output. The return value of
+        the query can be either "1" / "ON" or "0" / "OFF". We convert that to
+        a `bool` value of `True` or `False`.
+
+        Returns:
+            A `True` / `False` boolean value
+        """
+
         if self._output_enabled is None:
             current_state = self.instr_conn.query(
                 ":OUTPut:STATe?", self.query_delay
@@ -214,6 +283,18 @@ class E4438C():
 
     @output.setter
     def output(self, new_state: Union[int, str]):
+        """Sets the state of the Signal Generator's RF Output
+
+        This is the corresponding setter method which sets the new state and
+        waits for the operation to complete.
+
+        Args:
+            new_state: Either an `int` or a `str` with the new state.
+                       Acceptable values are 1 / "1" / "on" or 0 / "0" / "off".
+                       Other values will fail silently. This is still converted
+                       to a boolean value internally.
+        """
+
         self.instr_conn.write(
             f":OUTPut:STATe {new_state}"
         )
@@ -229,6 +310,16 @@ class E4438C():
 
     @property
     def mod_state(self):
+        """Returns the state of the Signal Generator's RF modulation setting
+
+        Queries and returns the state of the RF modulation. The return value of
+        the query can be either "1" / "ON" or "0" / "OFF". We convert that to
+        a `bool` value of `True` or `False`.
+
+        Returns:
+            A `True` / `False` boolean value
+        """
+
         if self._mod_enabled is None:
             current_state = self.instr_conn.query(
                 ":OUTPut:MODulation:STATe?", self.query_delay
@@ -240,6 +331,18 @@ class E4438C():
 
     @mod_state.setter
     def mod_state(self, new_state: Union[int, str]):
+        """Enables or disables the Signal Generator's RF modulation setting
+
+        This is the corresponding setter method which sets the new state and
+        waits for the operation to complete.
+
+        Args:
+            new_state: Either an `int` or a `str` with the new state.
+                       Acceptable values are 1 / "1" / "on" or 0 / "0" / "off".
+                       Other values will fail silently. This is still converted
+                       to a boolean value internally.
+        """
+
         self.instr_conn.write(
             f":OUTPut:MODulation:STATe {new_state}"
         )
