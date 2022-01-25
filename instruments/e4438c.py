@@ -1,11 +1,14 @@
 """Module holding Signal Generator Classes
 
+Currently only Keysight's E4438C is included and supported. A lot of work to
+be done, including splitting this into base and inherited classes.
 """
+
 import time
 import datetime
 import logging
 from typing import Union, Optional
-import ipaddress
+from ipaddress import ip_address
 import pyvisa
 
 
@@ -18,28 +21,67 @@ class E4438C():
     functionality is supported.
 
     Attributes:
-        instr_conn:
-        name:
-        logger:
-        query_delay:
-        vendor:
-        model_number:
-        serial_number:
-        fw_version:
-        frequency:
-        frequency_unit:
-        power:
-        power_unit:
-        output_enabled:
-        mod_enabled:
-        details:
+        instr_conn: A `pyvisa` object holding the remote connection to the
+                    instrument. Used to send SCPI commands and read the
+                    responses.
+        name: A `str` with a human-friendly name for the instrument, used to
+              identify it in the logs.
+        logger: A `logging.Logger` object to which to save info and diagnostic
+                messages.
+        query_delay: A `float` with the delay, in seconds, between VISA write
+                     and read operations.
+        vendor: A `str` with the vendor name, as provided by the instrument
+        model_number: A `str` with the model number, as provided by the
+                      instrument.
+        serial_number: A `str` with the serial number, as provided by the
+                       instrument.
+        fw_version: A `str` with the firmware version, as provided by the
+                    instrument.
+        details: A human-friendly `str` with a summary of the instrument's
+                 self-reported details.
+        frequency: A `float` or an `int` with the CW frequency of the Signal
+                   Generator. Currently only supports Hz.
+        power: A `float` or an `int` with the RF output power of the Signal
+               Generator. Currently only supports dBm.
+        output: A `bool` showing the state of the RF output of the instrument,
+                i.e. ON / OFF.
+        mod_state: A `bool` showing whether modulation is enabled or not.
     """
+
     def __init__(self, visamr: pyvisa.ResourceManager,
                  address: Union[str, int], instr_name: str,
                  logger: logging.Logger = None):
+        """Establishes a VISA connection to an instrument and presets it
+
+        Establishes a remote connection to a Keysight E4438C Signal Generator,
+        over either GPIB or LAN interface. Presets the instrument and writes
+        certain details, as reported by it, to a log file. Allows programmatic
+        control over CW frequency, RF output power, and modulation state.
+
+        Args:
+            visamr: A `pyvisa.ResourceManager` object used to establish a
+                    remote connection to the instrument. Normally this object
+                    is shared with other instruments, and is expected to be
+                    initialised before the instrument.
+            address: A `str` with an IPv4 address or an `int` with a GPIB
+                     address. Only primary GPIB addresses, i.e. 0 - 30 are
+                     supported.
+            instr_name: A `str` with a a name, or alias, for the instrument,
+                        to identify it more easily in the logs.
+            logger: An optional `logging.Logger` object to which to write
+                    diagnostic and info messages. If one is not supplied,
+                    a new one is created internally.
+
+        Raises:
+            ValueError: If an invalid IPv4 or GPIB address is specified.
+            RuntimeError: If a different type of address is specified, or if
+                          a remote connection to the instrument cannot be
+                          established.
+        """
+
         if isinstance(address, str):
             try:
-                ipaddress.ip_address(address)
+                ip_address(address)
                 instr_address = f"TCPIP0::{address}::INST0:INSTR"
             except ValueError as error:
                 if logger is not None:
@@ -62,7 +104,7 @@ class E4438C():
             )
             self.name = instr_name
             self.logger = logger if logger is not None else self.__get_logger()
-            self.logger.info("Established connection with %s", self.name)
+            self.logger.info("Established connection to %s", self.name)
         except pyvisa.VisaIOError as error:
             if logger is not None:
                 logger.critical("Could not connect to %s", instr_name)
@@ -76,11 +118,11 @@ class E4438C():
         self.serial_number: Optional[str] = None
         self.fw_version: Optional[str] = None
 
-        self._frequency = None
-        self.frequency_unit = "Hz"
+        self._frequency: Optional[float] = None
+        self._frequency_unit = "Hz"
 
-        self._power = None
-        self.power_unit = "dBm"
+        self._power: Optional[float] = None
+        self._power_unit = "dBm"
 
         self._output_enabled: Optional[bool] = None
         self._mod_enabled: Optional[bool] = None
@@ -209,56 +251,96 @@ class E4438C():
 
     @property
     def frequency(self):
+        """Returns the CW frequency to which the Signal Generator is set
+
+        Queries, if necessary, the CW frequency to which the Signal Generator
+        is currently set, and returns it together with its unit.
+
+        Returns:
+            A `tuple` consisting of the frequency in Hz as a `float` and the
+            unit used internally, as a `str`.
+        """
+
         if self._frequency is None:
-            self._frequency = self.instr_conn.query(
+            self._frequency = float(self.instr_conn.query(
                 ":SOURce:FREQuency:CW?", self.query_delay
-            )
-            self.frequency_unit = "Hz"
-        return (self._frequency, self.frequency_unit)
+            ))
+        return (self._frequency, self._frequency_unit)
 
     @frequency.setter
-    def frequency(self, new_params: Union[str, int, float]):
-        try:
-            new_freq, unit = new_params.split()
-        except (ValueError, AttributeError) as _:
-            new_freq = new_params
-            unit = self.frequency_unit
+    def frequency(self, new_freq: Union[int, float]):
+        """Sets the CW frequency of the Signal Generator
 
-        self.instr_conn.write(f":SOURce:FREQuency:CW {new_freq} {unit}")
+        Sends the SCPI command to set a CW frequency, waits for the operation
+        to complete, and confirms success.
 
-        if self._op_complete():
-            self._frequency = new_freq
-            self.frequency_unit = unit
-            print(f"Frequency set to {new_freq} {unit}")
-        else:
-            print(f"Error setting frequency to {new_freq} {unit}")
+        Notes:
+            There is no bounds checking right now, nor are units different
+            than Hz supported. This will change in the future.
 
-    @property
-    def power(self):
-        if self._power is None:
-            self._power = self.instr_conn.query(
-                ":SOURce:POWer:LEVel:IMMediate:AMPlitude?", self.query_delay
-            )
-        return (self._power, self.power_unit)
-
-    @power.setter
-    def power(self, new_params: Union[str, int, float]):
-        try:
-            new_power, unit = new_params.split()
-        except (ValueError, AttributeError) as _:
-            new_power = new_params
-            unit = self.power_unit
+        Args:
+            new_freq: An `int` or a `float` with the new frequency.
+                      The value should be in Hz.
+        """
 
         self.instr_conn.write(
-            f":SOURce:POWer:LEVel:IMMediate:AMPlitude {new_power} {unit}"
+            f":SOURce:FREQuency:CW {new_freq} {self._frequency_unit}"
         )
 
         if self._op_complete():
-            self._power = new_power
-            self.power_unit = unit
-            print(f"Output power set to {new_power} {unit}")
+            self._frequency = float(new_freq)
+            print(f"Frequency set to {self._frequency} {self._frequency_unit}")
         else:
-            print(f"Error setting output power to {new_power} {unit}")
+            print(
+                f"Error setting frequency to {new_freq} {self._frequency_unit}"
+            )
+
+    @property
+    def power(self):
+        """Returns the RF output power to which the Signal Generator is set
+
+        Queries, if necessary, the RF output power to which the Signal
+        Generator is currently set, and returns it together with its unit.
+
+        Returns:
+            A `tuple` consisting of the power in dBm as a `float` and the
+            unit used internally, as a `str`.
+        """
+
+        if self._power is None:
+            self._power = float(self.instr_conn.query(
+                ":SOURce:POWer:LEVel:IMMediate:AMPlitude?", self.query_delay
+            ))
+        return (self._power, self._power_unit)
+
+    @power.setter
+    def power(self, new_power: Union[int, float]):
+        """Sets the RF output power of the Signal Generator
+
+        Sends the SCPI command to set a RF output power, waits for the
+        operation to complete, and confirms success.
+
+        Notes:
+            There is no bounds checking right now, nor are units different
+            than dBm supported. This will change in the future.
+
+        Args:
+            new_freq: An `int` or a `float` with the new RF output power.
+                      The value should be in dBm.
+        """
+
+        self.instr_conn.write(
+            f":SOURce:POWer:LEVel:IMMediate:AMPlitude"
+            f" {new_power} {self._power_unit}"
+        )
+
+        if self._op_complete():
+            self._power = float(new_power)
+            print(f"Output power set to {self._power} {self._power_unit}")
+        else:
+            print(
+                f"Error setting output power to {new_power} {self._power_unit}"
+            )
 
     @property
     def output(self):
