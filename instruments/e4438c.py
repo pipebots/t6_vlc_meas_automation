@@ -12,7 +12,7 @@ from ipaddress import ip_address
 import pyvisa
 
 
-class E4438C():
+class E4438C:
     """Remote control of an Keysight E4438C Signal Generator using SCPI cmds.
 
     A class representation of a Keysight E4438C Signal Generator, that provides
@@ -21,9 +21,6 @@ class E4438C():
     functionality is supported.
 
     Attributes:
-        instr_conn: A `pyvisa` object holding the remote connection to the
-                    instrument. Used to send SCPI commands and read the
-                    responses.
         name: A `str` with a human-friendly name for the instrument, used to
               identify it in the logs.
         logger: A `logging.Logger` object to which to save info and diagnostic
@@ -82,7 +79,7 @@ class E4438C():
         if isinstance(address, str):
             try:
                 ip_address(address)
-                instr_address = f"TCPIP0::{address}::INST0:INSTR"
+                instr_address = f"TCPIP0::{address}::inst0::INSTR"
             except ValueError as error:
                 if logger is not None:
                     logger.warning("%s is not a valid IP address", address)
@@ -99,7 +96,7 @@ class E4438C():
             raise RuntimeError("Only IPv4 and GPIB addresses are supported")
 
         try:
-            self.instr_conn = visamr.open_resource(
+            self._instr_conn = visamr.open_resource(
                 instr_address, read_termination="\n", write_termination="\n"
             )
             self.name = instr_name
@@ -137,7 +134,7 @@ class E4438C():
         object is deleted.
         """
         self.logger.info("Closing connection to %s", self.name)
-        self.instr_conn.close()
+        self._instr_conn.close()
 
     def __get_logger(self) -> logging.Logger:
         """Sets up a `Logger` object for diagnostic and debug
@@ -197,7 +194,7 @@ class E4438C():
             A `True` or `False` boolean value. Should only ever return `True`
         """
 
-        response = self.instr_conn.query("*OPC?", self.query_delay)
+        response = self._instr_conn.query("*OPC?", self.query_delay)
         return response.lower() == "1"
 
     def reset(self):
@@ -207,10 +204,10 @@ class E4438C():
         and to clear the status register of the instrument.
         """
 
-        self.instr_conn.write("*RST")
-        time.sleep(0.25)
-        self.instr_conn.write("*CLS")
-        time.sleep(0.25)
+        self._instr_conn.write("*RST")
+        time.sleep(self.query_delay)
+        self._instr_conn.write("*CLS")
+        time.sleep(self.query_delay)
 
     def _log_details(self):
         """Logs instrument-specific details
@@ -219,7 +216,7 @@ class E4438C():
         other relevant details.
         """
 
-        idn_response = self.instr_conn.query("*IDN?", self.query_delay)
+        idn_response = self._instr_conn.query("*IDN?", self.query_delay)
         (self.vendor,
          self.model_number,
          self.serial_number,
@@ -244,7 +241,7 @@ class E4438C():
         """
         print(
             f"{self.vendor} {self.model_number} connected on "
-            f"{self.instr_conn.resource_name} with alias {self.name}.\n"
+            f"{self._instr_conn.resource_name} with alias {self.name}.\n"
             f"Serial number: {self.serial_number}\n"
             f"Firmware version: {self.fw_version}"
         )
@@ -262,7 +259,7 @@ class E4438C():
         """
 
         if self._frequency is None:
-            self._frequency = float(self.instr_conn.query(
+            self._frequency = float(self._instr_conn.query(
                 ":SOURce:FREQuency:CW?", self.query_delay
             ))
         return (self._frequency, self._frequency_unit)
@@ -283,7 +280,7 @@ class E4438C():
                       The value should be in Hz.
         """
 
-        self.instr_conn.write(
+        self._instr_conn.write(
             f":SOURce:FREQuency:CW {new_freq} {self._frequency_unit}"
         )
 
@@ -308,7 +305,7 @@ class E4438C():
         """
 
         if self._power is None:
-            self._power = float(self.instr_conn.query(
+            self._power = float(self._instr_conn.query(
                 ":SOURce:POWer:LEVel:IMMediate:AMPlitude?", self.query_delay
             ))
         return (self._power, self._power_unit)
@@ -329,7 +326,7 @@ class E4438C():
                       The value should be in dBm.
         """
 
-        self.instr_conn.write(
+        self._instr_conn.write(
             f":SOURce:POWer:LEVel:IMMediate:AMPlitude"
             f" {new_power} {self._power_unit}"
         )
@@ -355,7 +352,7 @@ class E4438C():
         """
 
         if self._output_enabled is None:
-            current_state = self.instr_conn.query(
+            current_state = self._instr_conn.query(
                 ":OUTPut:STATe?", self.query_delay
             )
             self._output_enabled = (
@@ -377,7 +374,7 @@ class E4438C():
                        to a boolean value internally.
         """
 
-        self.instr_conn.write(
+        self._instr_conn.write(
             f":OUTPut:STATe {new_state}"
         )
 
@@ -403,7 +400,7 @@ class E4438C():
         """
 
         if self._mod_enabled is None:
-            current_state = self.instr_conn.query(
+            current_state = self._instr_conn.query(
                 ":OUTPut:MODulation:STATe?", self.query_delay
             )
             self._mod_enabled = (
@@ -425,7 +422,7 @@ class E4438C():
                        to a boolean value internally.
         """
 
-        self.instr_conn.write(
+        self._instr_conn.write(
             f":OUTPut:MODulation:STATe {new_state}"
         )
 

@@ -12,7 +12,7 @@ from ipaddress import ip_address
 import pyvisa
 
 
-class N9000A():
+class N9000A:
     """Remote control of an Keysight N9000A Spectrum Analyser using SCPI cmds.
 
     A class representation of a Keysight N9000A Spectrum Analyser, that
@@ -82,7 +82,7 @@ class N9000A():
         if isinstance(address, str):
             try:
                 ip_address(address)
-                instr_address = f"TCPIP0::{address}::INST0:INSTR"
+                instr_address = f"TCPIP0::{address}::inst0::INSTR"
             except ValueError as error:
                 if logger is not None:
                     logger.warning("%s is not a valid IP address", address)
@@ -99,7 +99,7 @@ class N9000A():
             raise RuntimeError("Only IPv4 and GPIB addresses are supported")
 
         try:
-            self.instr_conn = visamr.open_resource(
+            self._instr_conn = visamr.open_resource(
                 instr_address, read_termination="\n", write_termination="\n"
             )
             self.name = instr_name
@@ -199,10 +199,11 @@ class N9000A():
         """
 
         self.instr_conn.write("*RST")
-        time.sleep(0.25)
+        time.sleep(self.query_delay)
         self.instr_conn.write("*CLS")
-        time.sleep(0.25)
-
+        time.sleep(self.query_delay)
+        self.instr_conn.write(":INIT:CONT ON")
+        
     def _log_details(self):
         """Logs instrument-specific details
 
