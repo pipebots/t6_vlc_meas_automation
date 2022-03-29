@@ -4,11 +4,12 @@ Currently only Keysight's E4438C is included and supported. A lot of work to
 be done, including splitting this into base and inherited classes.
 """
 
-import time
 import datetime
 import logging
-from typing import Union, Optional
+import time
 from ipaddress import ip_address
+from typing import Optional, Union
+
 import pyvisa
 
 
@@ -76,21 +77,21 @@ class E4438C:
                           established.
         """
 
+        self.logger = logger if logger is not None else self.__get_logger()
+
         if isinstance(address, str):
             try:
                 ip_address(address)
                 instr_address = f"TCPIP0::{address}::inst0::INSTR"
             except ValueError as error:
-                if logger is not None:
-                    logger.warning("%s is not a valid IP address", address)
+                logger.warning("%s is not a valid IP address", address)
                 raise ValueError("Please use a valid IP address") from error
 
         elif isinstance(address, int):
             if 0 <= address <= 30:
                 instr_address = f"GPIB0::{address}::INSTR"
             else:
-                if logger is not None:
-                    logger.warning("%d is not a valid GPIB address", address)
+                logger.warning("%d is not a valid GPIB address", address)
                 raise ValueError("Please use a valid GPIB address")
         else:
             raise RuntimeError("Only IPv4 and GPIB addresses are supported")
@@ -99,14 +100,13 @@ class E4438C:
             self._instr_conn = visamr.open_resource(
                 instr_address, read_termination="\n", write_termination="\n"
             )
-            self.name = instr_name
-            self.logger = logger if logger is not None else self.__get_logger()
-            self.logger.info("Established connection to %s", self.name)
         except pyvisa.VisaIOError as error:
-            if logger is not None:
-                logger.critical("Could not connect to %s", instr_name)
-                logger.critical("Error message: %s", error.args)
+            logger.critical("Could not connect to %s", instr_name)
+            logger.critical("Error message: %s", error.args)
             raise RuntimeError("Could not connect to instrument") from error
+        else:
+            self.name = instr_name
+            self.logger.info("Established connection to %s", self.name)
 
         self.query_delay = 0.25
 
